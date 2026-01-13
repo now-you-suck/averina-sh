@@ -14,8 +14,6 @@ EOF
 
 done
 
-
-
 cat > /etc/net/ifaces/br0/options << EOF
 TYPE=bri
 HOST='ens19 ens20 ens21 ens22'
@@ -23,3 +21,6 @@ HOST='ens19 ens20 ens21 ens22'
 EOF
 
 systemctl restart network
+
+echo "net.ipv4.net_forward = 1" >> /etc/sysctl.conf
+sysctl -p
