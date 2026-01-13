@@ -1,3 +1,5 @@
+#!/bin/bash
+
 mkdir /etc/net/ifaces/br0
 
 intNames=("ens19" "ens20" "ens21" "ens22")
