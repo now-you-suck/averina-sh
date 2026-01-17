@@ -30,6 +30,23 @@ echo_error() {
 
 #мб сделать проверку на роот
 
+#Функция настройки dns
+dns_setup(){
+    default_dns="8.8.8.8"
+#    dns_nameserver="0"
+    echo_info "Выбрана насройка dns"
+    read -p "Введить dns nameserver [По умолчанию 8.8.8.8]: " dns_nameserver
+    if [[ -z "$dns_nameserver" ]]; then
+	dns_nameserver="$default_dns"
+    fi
+    read -p "Перезаписать существующие nameservers?[y/N]" way
+    if [[ "$way" =~ ^[YyнН]$ ]]; then
+	echo "nameserver $dns_nameserver" > /etc/resolv.conf
+    else
+	echo "nameserver $dns_nameserver" >> /etc/resolv.conf
+    fi
+}
+
 #Функция получения текущих сетевых параметров
 get_network_info(){
     echo_info "Получение информаций о сети"
@@ -54,6 +71,12 @@ get_interfaces_list() {
     
     echo "${if_list[@]}"
 }
+#Функция получения MAC из имени
+get_mac_for_interface(){
+    local iface="$1"
+    ip link show "$iface" 2>/dev/null | grep -o 'link/ether [^ ]*' | awk '{print $2}'
+}
+
 #Функция применения настроек
 apply_network_config() {
     echo_info "Применение сетевых настроек..."
@@ -69,9 +92,9 @@ DHCP_setting(){
     get_network_info
     read -p "Введите номер интерфейса: " num_interface
     interface=${if_list[$num_interface]}
-    echo "$interface"
+    #echo "$interface"
     if [ -d "/etc/net/ifaces/$interface" ]; then
-	echo "idi naxui" >> /dev/null
+	echo "Папка есть" >> /dev/null
     else
 	mkdir /etc/net/ifaces/$interface
     fi
@@ -85,6 +108,60 @@ EOF
     echo_info "Конфигурация DHCP у $interface создана"
     apply_network_config
 }
+#Функция настройки STATIC у интерфейсов
+STATIC_setting(){
+    gate="0"
+    echo_info "Выбрана настройка через static"
+    echo "Выберите интерфейс"
+    local if_list=($(get_interfaces_list))
+    get_network_info
+    read -p "Введите номер интерфейса: " num_interface
+    interface=${if_list[$num_interface]}
+    echo_info "Начало настройки $interface"
+    read -p "Введите ip/префикс (к примеру 192.168.0.10/24): " ip_address
+    read -p "Необходим ли шлюз по умолчанию?[y/N]: " need_gate
+    if [[ "$need_gate" =~ ^[YyнН]$ ]]; then
+	read -p "Введите шлюз по умолчанию(к примеру 192.168.0.1): " gate
+    fi
+    echo_info "Будут применены следующие настройки:"
+    echo "-----------------------------------------"
+    echo "Интерфейс:	$interface ($(get_mac_for_interface "$interface"))"
+    echo "IP-адрес/маска:	$ip_address"
+    if [ "$gate" != "0" ]; then
+	echo "Шлюз:		$gate"
+    fi
+    echo "-----------------------------------------"
+    read -p "Применить настройки?[y/N]: " confirm
+    echo_info "Настройка $interface"
+    if [[ "$confirm" =~ ^[YyнН]$ ]]; then
+	if [ -d "/etc/net/ifaces/$interface" ]; then
+	    echo "Папка есть" >> /dev/null
+	else
+	    mkdir /etc/net/ifaces/$interface
+	fi
+	cat > /etc/net/ifaces/$interface/options << EOF
+TYPE=eth
+ONBOOT=yes
+DISABLED=no
+BOOTPROTO=static
+EOF
+	cat > /etc/net/ifaces/$interface/ipv4address << EOF 
+$ip_address 
+EOF
+	if [ "$gate" != "0" ]; then
+	    cat > /etc/net/ifaces/$interface/ipv4route << EOF 
+default via $gate 
+EOF
+	fi
+	echo_info "Конфигурация STATIC у $interface создана"
+	apply_network_config
+    else
+	echo_info "Настройка $interface отменена"
+    fi
+    
+    
+
+}
 
 
 # Функция настройки WAN интнрфейса
@@ -94,35 +171,40 @@ setup_interface(){
     if [[ "$way" =~ ^[YyнН]$ ]]; then
 	DHCP_setting
     else
-	echo "Выбрана настройка через static"
+#	echo "Выбрана настройка через static"
+	STATIC_setting
     fi
 }
-
 
 main() {
     echo "Скрипт настройки сети etcnet"
     
     #get_network_info
     
-    #echo "Выберите действие:" 
-    echo "Выберите действие:"
-    echo "1) Настройка интерфейсов"
-    echo "2) Добавление dns"
-    echo "3) Настройка nat"
-    echo "4) Выход"
-    read -p "Ваш выбор [1-4]: " choice
-    case $choice in
-	1)
-	    setup_interface
-	    ;;
-	4) 
-	    echo_info "Выход"
-	    exit 0
-	    ;;
-	*)
-	    echo_error "Неверный выбор. Завершение работы скрипта."
-	    exit 1
-	    ;;
-    esac
+    #echo "Выберите действие:"
+    while true; do 
+	echo "Выберите действие:"
+	echo "1) Настройка интерфейсов"
+	echo "2) Добавление dns"
+	echo "3) Настройка nat"
+	echo "4) Выход"
+	read -p "Ваш выбор [1-4]: " choice
+	case $choice in
+	    1)
+		setup_interface
+		;;
+	    2)
+		dns_setup
+		;;
+	    4) 
+		echo_info "Выход"
+		exit 0
+		;;
+	    *)
+		echo_error "Неверный выбор. Завершение работы скрипта."
+		exit 1
+	        ;;
+	esac
+    done
 }
-main 
+main "$@"
