@@ -45,19 +45,23 @@ dns_setup(){
     else
 	echo "nameserver $dns_nameserver" >> /etc/resolv.conf
     fi
+    echo_info "Настройка завершена. DNS $dns_nameserver успешно добавлен."
 }
-
 #Функция получения текущих сетевых параметров
 get_network_info(){
     echo_info "Получение информаций о сети"
+    sum_int="0"
     #получаем список интерфесов
     ip -o link show | grep -v 'lo:' | while read line; 
     do
-	if_num=$(echo "$line" | awk -F': ' '{print $1}')
+	sum_int=$((sum_int += 1))
+	#if_num=$(echo "$line" | awk -F': ' '{print $1}')
+	#num_int=$(sum_int=$((sum_int + 1)); echo "$sum_int")
 	if_name=$(echo "$line" | awk -F': ' '{print $2}')
 	mac_addr=$(ip link show "$if_name" | grep -o 'link/ether [^ ]*' | awk '{print $2}')
-	
-	printf "%s: %s - %s\n" "$(( $if_num - 1 ))" "$if_name" "$mac_addr"
+	ip_addr=$(ip address show $if_name | grep -o 'inet [^ ]*' | awk '{print $2}')
+	#echo "$num_int"
+	printf "%s: %s (%s) - %s\n" "$sum_int" "$if_name" "$mac_addr" "$ip_addr"
     done
 }
 #Функция получения списка интерфейсов
@@ -82,8 +86,25 @@ apply_network_config() {
     echo_info "Применение сетевых настроек..."
     systemctl restart network
 }
-
-
+#Функция настройка nat
+nat_setup(){
+    echo_info "Выбрана настройка nat"
+    get_network_info
+    read -p "Введите номер output интерфейса(WAN интерфейс): " wan_interface
+    local if_list=($(get_interfaces_list))
+    interface=${if_list[$wan_interface]}
+    echo $interface
+    iptables -t nat -A POSTROUTING -o $interface -j MASQUERADE
+    iptables-save > /etc/rules.v4
+    
+    if grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
+	echo "da" >> /dev/null
+    else
+	echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+    fi
+    sysctl -p
+    echo "@reboot /sbin/iptables-resore < /etc/rules.v4" | crontab -
+}
 #Функция настройки DHCP у интерфейсов
 DHCP_setting(){
     echo_info "Выбрана настройка через DHCP"
@@ -159,8 +180,6 @@ EOF
 	echo_info "Настройка $interface отменена"
     fi
     
-    
-
 }
 
 
@@ -195,6 +214,9 @@ main() {
 		;;
 	    2)
 		dns_setup
+		;;
+	    3)
+		nat_setup
 		;;
 	    4) 
 		echo_info "Выход"
