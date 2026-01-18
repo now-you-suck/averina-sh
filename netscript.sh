@@ -98,9 +98,9 @@ nat_setup(){
     iptables-save > /etc/rules.v4
     
     if grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
-	echo "da" >> /dev/null
+		echo "da" >> /dev/null
     else
-	echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+		echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
     fi
     sysctl -p
     echo "@reboot /sbin/iptables-resore < /etc/rules.v4" | crontab -
@@ -194,7 +194,40 @@ setup_interface(){
 	STATIC_setting
     fi
 }
-
+switch_setup(){
+	echo_info "Выбрана настройка коммутатора"
+	read -p "Настройть устройство как коммутатор?[y/N]: " way
+    if [[ "$way" =~ ^[YyнН]$ ]]; then
+		if [ -d "/etc/net/ifaces/br0" ]; then
+	    	echo "Папка есть" >> /dev/null
+		else
+	    	mkdir /etc/net/ifaces/br0
+		fi
+		local if_list=($(get_interfaces_list))
+		for int in "${if_list[@]}"
+		do
+			mkdir /etc/net/ifaces/$int
+			cat > /etc/net/ifaces/$int/options << EOF
+TYPE=eth
+ONBOOT=yes
+DISABLED=no
+BOOTPROTO=static
+EOF
+		done
+		cat > /etc/net/ifaces/br0/options << EOF
+TYPE=bri
+HOST='$if_list'
+EOF
+		if grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
+			echo "da" >> /dev/null
+    	else
+			echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+    	fi
+    	sysctl -p
+	else
+		echo_info "Настройка коммутатора прервана"
+	fi
+}
 main() {
     echo "Скрипт настройки сети etcnet"
     
@@ -206,8 +239,9 @@ main() {
 	echo "1) Настройка интерфейсов"
 	echo "2) Добавление dns"
 	echo "3) Настройка nat"
-	echo "4) Выход"
-	read -p "Ваш выбор [1-4]: " choice
+	echo "4) Настройка коммутатора"
+	echo "5) Выход"
+	read -p "Ваш выбор [1-5]: " choice
 	case $choice in
 	    1)
 		setup_interface
@@ -218,7 +252,10 @@ main() {
 	    3)
 		nat_setup
 		;;
-	    4) 
+		4) 
+		switch_setup
+		;;
+	    5) 
 		echo_info "Выход"
 		exit 0
 		;;
