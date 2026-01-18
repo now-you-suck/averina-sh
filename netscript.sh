@@ -123,7 +123,7 @@ DHCP_setting(){
 TYPE=eth
 ONBOOT=yes
 DISABLED=no
-BOOTPROTO=DHCP
+BOOTPROTO=dhcp
 EOF
     #chmod 644 /etc/net/ifaces/$interface/options
     echo_info "Конфигурация DHCP у $interface создана"
@@ -199,15 +199,20 @@ switch_setup(){
 	read -p "Настройть устройство как коммутатор?[y/N]: " way
     if [[ "$way" =~ ^[YyнН]$ ]]; then
 		if [ -d "/etc/net/ifaces/br0" ]; then
-	    	echo "Папка есть" >> /dev/null
+	    	    echo "Папка есть" >> /dev/null
 		else
-	    	mkdir /etc/net/ifaces/br0
+	    	    mkdir /etc/net/ifaces/br0
 		fi
 		local if_list=($(get_interfaces_list))
-		for int in "${if_list[@]}"
+		for int in "${if_list[@]:1}"
 		do
-			mkdir /etc/net/ifaces/$int
-			cat > /etc/net/ifaces/$int/options << EOF
+		    #echo $int
+		    if [ -d "/etc/net/ifaces/$int" ]; then
+			echo "idi naxui" >> /dev/null
+		    else
+		        mkdir /etc/net/ifaces/$int
+		    fi
+		    cat > /etc/net/ifaces/$int/options << EOF
 TYPE=eth
 ONBOOT=yes
 DISABLED=no
@@ -216,14 +221,15 @@ EOF
 		done
 		cat > /etc/net/ifaces/br0/options << EOF
 TYPE=bri
-HOST='$if_list'
+HOST='${if_list[@]:1}'
 EOF
 		if grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
 			echo "da" >> /dev/null
-    	else
+    		else
 			echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-    	fi
-    	sysctl -p
+    		fi
+    		sysctl -p
+    		apply_network_config
 	else
 		echo_info "Настройка коммутатора прервана"
 	fi
