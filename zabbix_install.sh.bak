@@ -1,5 +1,5 @@
 #!/bin/bash
-apt-get update && apt-get install -y postgresql17-server zabbix-server-pgsql fping apache2 apache2-mod_php8.2 php8.2 php8.2-mbstring php8.2-sockets php8.2-gd php8.2-xmlreader php8.2-pgsql php8.2-ldap php8.2-openssl zabbix-phpfrontend-apache2 zabbix-phpfrontend-php8.2
+apt-get update && apt-get install -y apt-get install postgresql17-server zabbix-server-pgsql fping apache2 apache2-mod_php8.2 php8.2 php8.2-mbstring php8.2-sockets php8.2-gd php8.2-xmlreader php8.2-pgsql php8.2-ldap php8.2-openssl zabbix-phpfrontend-apache2 zabbix-phpfrontend-php8.2
 
 systemctl enable --now httpd2
 
