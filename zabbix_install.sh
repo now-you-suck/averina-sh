@@ -35,8 +35,11 @@ cat << EOF > /etc/zabbix/zabbix_server.conf
 DBHost=localhost
 DBName=zabbix
 DBUser=zabbix
-DBPassword=Пароль
+DBPassword=P@ssw0rd
+LogFile=/var/log/zabbix.log
 EOF
+
+chmod 557 /var/log
 
 systemctl enable --now zabbix_pgsql
 
