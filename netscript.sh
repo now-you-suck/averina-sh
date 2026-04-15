@@ -223,22 +223,18 @@ bond_setup(){
 
     cat > /etc/net/ifaces/$bond_name/options << EOF
 TYPE=bond
-ONBOOT=yes
 BOOTPROTO=static
-BONDING_OPTS="mode=$bond_mode miimon=100"
+HOST=\"${bond_ifaces[*]}\"
+BONDMODE=$bond_mode
+BONDOPTIONS="miimon=100"
 EOF
-
-    echo "BONDING_SLAVES=\"${bond_ifaces[*]}\"" > /etc/net/ifaces/$bond_name/slaves
 
     for iface in "${bond_ifaces[@]}"; do
         mkdir -p /etc/net/ifaces/$iface
 
         cat > /etc/net/ifaces/$iface/options << EOF
 TYPE=eth
-ONBOOT=yes
-BOOTPROTO=none
-MASTER=$bond_name
-SLAVE=yes
+BOOTPROTO=static
 EOF
     done
 
