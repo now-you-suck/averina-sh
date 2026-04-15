@@ -194,49 +194,111 @@ setup_interface(){
 	STATIC_setting
     fi
 }
-switch_setup(){
-	echo_info "Выбрана настройка коммутатора"
-	read -p "Настройть устройство как коммутатор?[y/N]: " way
-    if [[ "$way" =~ ^[YyнН]$ ]]; then
-		if [ -d "/etc/net/ifaces/br0" ]; then
-	    	    echo "Папка есть" >> /dev/null
-		else
-	    	    mkdir /etc/net/ifaces/br0
-		fi
-		local if_list=($(get_interfaces_list))
-		for int in "${if_list[@]:1}"
-		do
-		    #echo $int
-		    if [ -d "/etc/net/ifaces/$int" ]; then
-			echo "idi naxui" >> /dev/null
-		    else
-		        mkdir /etc/net/ifaces/$int
-		    fi
-		    cat > /etc/net/ifaces/$int/options << EOF
+bond_setup(){
+    echo_info "Выбрана настройка агрегирования каналов (bonding)"
+
+    local if_list=($(get_interfaces_list))
+    get_network_info
+
+    read -p "Введите номера интерфейсов для агрегации (через пробел): " bond_indexes
+
+    bond_ifaces=()
+    for idx in $bond_indexes; do
+        bond_ifaces+=("${if_list[$idx]}")
+    done
+
+    if [ ${#bond_ifaces[@]} -lt 2 ]; then
+        echo_error "Нужно минимум 2 интерфейса"
+        return 1
+    fi
+
+    read -p "Введите режим bonding (0=balance-rr, 1=active-backup, 4=802.3ad) [по умолчанию 1]: " bond_mode
+    bond_mode=${bond_mode:-1}
+
+    bond_name="bond0"
+
+    mkdir -p /etc/net/ifaces/$bond_name
+
+    echo_info "Создание bond интерфейса $bond_name"
+
+    cat > /etc/net/ifaces/$bond_name/options << EOF
+TYPE=bond
+ONBOOT=yes
+BOOTPROTO=static
+BONDING_OPTS="mode=$bond_mode miimon=100"
+EOF
+
+    echo "BONDING_SLAVES=\"${bond_ifaces[*]}\"" > /etc/net/ifaces/$bond_name/slaves
+
+    for iface in "${bond_ifaces[@]}"; do
+        mkdir -p /etc/net/ifaces/$iface
+
+        cat > /etc/net/ifaces/$iface/options << EOF
 TYPE=eth
 ONBOOT=yes
-DISABLED=no
+BOOTPROTO=none
+MASTER=$bond_name
+SLAVE=yes
+EOF
+    done
+
+    echo_info "Bond интерфейс $bond_name создан (${bond_ifaces[*]})"
+    apply_network_config
+}
+switch_setup(){
+    echo_info "Выбрана настройка коммутатора"
+
+    read -p "Настроить устройство как коммутатор?[y/N]: " way
+    if [[ ! "$way" =~ ^[YyнН]$ ]]; then
+        echo_info "Настройка коммутатора прервана"
+        return
+    fi
+
+    local if_list=($(get_interfaces_list))
+    bridge_ifaces=()
+
+    for int in "${if_list[@]:1}"; do
+        # пропускаем bond интерфейсы
+        if [[ "$int" =~ bond ]]; then
+            continue
+        fi
+
+        # пропускаем slave интерфейсы
+        if grep -q "SLAVE=yes" /etc/net/ifaces/$int/options 2>/dev/null; then
+            continue
+        fi
+
+        bridge_ifaces+=("$int")
+
+        mkdir -p /etc/net/ifaces/$int
+
+        cat > /etc/net/ifaces/$int/options << EOF
+TYPE=eth
+ONBOOT=yes
+BOOTPROTO=none
+EOF
+    done
+
+    mkdir -p /etc/net/ifaces/br0
+
+    cat > /etc/net/ifaces/br0/options << EOF
+TYPE=bridge
+ONBOOT=yes
 BOOTPROTO=static
+HOST='${bridge_ifaces[*]}'
 EOF
-		done
-		cat > /etc/net/ifaces/br0/options << EOF
-TYPE=bri
-HOST='${if_list[@]:1}'
-EOF
-		if grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
-			echo "da" >> /dev/null
-    		else
-			echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-    		fi
-    		sysctl -p
-    		apply_network_config
-	else
-		echo_info "Настройка коммутатора прервана"
-	fi
+
+    if ! grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
+        echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+    fi
+
+    sysctl -p
+    apply_network_config
+
+    echo_info "Коммутатор настроен (br0: ${bridge_ifaces[*]})"
 }
 main() {
     echo "Скрипт настройки сети etcnet"
-    
     #get_network_info
     
     #echo "Выберите действие:"
@@ -246,7 +308,8 @@ main() {
 	echo "2) Добавление dns"
 	echo "3) Настройка nat"
 	echo "4) Настройка коммутатора"
-	echo "5) Выход"
+	echo "5) Настройка агрегирования"
+	echo "6) Выход"
 	read -p "Ваш выбор [1-5]: " choice
 	case $choice in
 	    1)
@@ -261,7 +324,10 @@ main() {
 		4) 
 		switch_setup
 		;;
-	    5) 
+		5)
+		bond_setup()
+		;;
+	    6) 
 		echo_info "Выход"
 		exit 0
 		;;
