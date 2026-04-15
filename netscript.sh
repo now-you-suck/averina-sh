@@ -321,7 +321,7 @@ main() {
 		switch_setup
 		;;
 		5)
-		bond_setup()
+		bond_setup
 		;;
 	    6) 
 		echo_info "Выход"
