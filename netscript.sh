@@ -224,7 +224,7 @@ bond_setup(){
     cat > /etc/net/ifaces/$bond_name/options << EOF
 TYPE=bond
 BOOTPROTO=static
-HOST=\"${bond_ifaces[*]}\"
+HOST="${bond_ifaces[*]}"
 BONDMODE=$bond_mode
 BONDOPTIONS="miimon=100"
 EOF
