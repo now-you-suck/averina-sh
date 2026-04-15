@@ -258,14 +258,6 @@ switch_setup(){
         if [[ "$int" =~ bond ]]; then
             continue
         fi
-
-        # пропускаем slave интерфейсы
-        if grep -q "SLAVE=yes" /etc/net/ifaces/$int/options 2>/dev/null; then
-            continue
-        fi
-
-        bridge_ifaces+=("$int")
-
         mkdir -p /etc/net/ifaces/$int
 
         cat > /etc/net/ifaces/$int/options << EOF
@@ -278,7 +270,7 @@ EOF
     mkdir -p /etc/net/ifaces/br0
 
     cat > /etc/net/ifaces/br0/options << EOF
-TYPE=bridge
+TYPE=bri
 ONBOOT=yes
 BOOTPROTO=static
 HOST='${bridge_ifaces[*]}'
@@ -306,7 +298,7 @@ main() {
 	echo "4) Настройка коммутатора"
 	echo "5) Настройка агрегирования"
 	echo "6) Выход"
-	read -p "Ваш выбор [1-5]: " choice
+	read -p "Ваш выбор [1-6]: " choice
 	case $choice in
 	    1)
 		setup_interface
