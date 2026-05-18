@@ -40,7 +40,7 @@ ospf_setup() {
 
         if [[ ! "$install_frr" =~ ^[NnтТ]$ ]]; then
             apt-get update
-            apt-get install -y frr frr-pythontools
+            apt-get install -y frr
         else
             echo_error "FRR необходим для OSPF"
             return 1
