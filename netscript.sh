@@ -30,6 +30,149 @@ echo_error() {
 
 #мб сделать проверку на роот
 
+ospf_setup() {
+    echo_info "Выбрана настройка OSPF (FRR)"
+
+    # Проверка FRR
+    if ! rpm -q frr >/dev/null 2>&1; then
+        echo_warn "FRR не установлен"
+        read -p "Установить FRR?[Y/n]: " install_frr
+
+        if [[ ! "$install_frr" =~ ^[NnтТ]$ ]]; then
+            apt-get update
+            apt-get install -y frr frr-pythontools
+        else
+            echo_error "FRR необходим для OSPF"
+            return 1
+        fi
+    fi
+
+    # Получение интерфейсов
+    local if_list=($(get_interfaces_list))
+
+    declare -A iface_costs
+
+    echo_info "Настройка OSPF cost"
+
+    while true; do
+        echo
+        echo "Доступные интерфейсы:"
+
+        for i in "${!if_list[@]}"; do
+            iface="${if_list[$i]}"
+
+            if [[ "$iface" == "lo" ]]; then
+                continue
+            fi
+
+            current_cost="${iface_costs[$iface]}"
+            [[ -z "$current_cost" ]] && current_cost="не задан"
+
+            echo "$i) $iface (cost: $current_cost)"
+        done
+
+        echo "999) Завершить настройку cost"
+
+        read -p "Выберите интерфейс: " iface_choice
+
+        if [[ "$iface_choice" == "999" ]]; then
+            break
+        fi
+
+        selected_iface="${if_list[$iface_choice]}"
+
+        if [[ -z "$selected_iface" ]]; then
+            echo_error "Неверный интерфейс"
+            continue
+        fi
+
+        read -p "Введите cost для $selected_iface: " cost_value
+
+        if ! [[ "$cost_value" =~ ^[0-9]+$ ]]; then
+            echo_error "Cost должен быть числом"
+            continue
+        fi
+
+        iface_costs["$selected_iface"]="$cost_value"
+
+        echo_info "Для $selected_iface установлен cost=$cost_value"
+    done
+
+    # Установка default cost
+    for iface in "${if_list[@]}"; do
+        [[ "$iface" == "lo" ]] && continue
+
+        if [[ -z "${iface_costs[$iface]}" ]]; then
+            iface_costs["$iface"]=100
+        fi
+    done
+
+    echo
+    echo_info "Итоговая конфигурация OSPF cost"
+    echo "-------------------------------------"
+
+    for iface in "${if_list[@]}"; do
+        [[ "$iface" == "lo" ]] && continue
+        printf "%-15s cost=%s\n" "$iface" "${iface_costs[$iface]}"
+    done
+
+    echo "-------------------------------------"
+
+    read -p "Подтвердить настройки?[y/N]: " confirm
+
+    if [[ ! "$confirm" =~ ^[YyнН]$ ]]; then
+        echo_warn "Настройка OSPF отменена"
+        return
+    fi
+
+    echo_info "Включение ospfd"
+
+    sed -i 's/^ospfd=no/ospfd=yes/' /etc/frr/daemons
+
+    mkdir -p /etc/frr
+
+    cat > /etc/frr/frr.conf << EOF
+frr defaults traditional
+hostname ospf-router
+service integrated-vtysh-config
+
+router ospf
+EOF
+
+    # Автоматически добавляем сети интерфейсов в area 0
+    for iface in "${if_list[@]}"; do
+        [[ "$iface" == "lo" ]] && continue
+
+        network=$(ip -4 addr show "$iface" | grep inet | awk '{print $2}')
+
+        if [[ -n "$network" ]]; then
+            echo " network $network area 0.0.0.0" >> /etc/frr/frr.conf
+        fi
+    done
+
+    echo >> /etc/frr/frr.conf
+
+    # interface cost
+    for iface in "${if_list[@]}"; do
+        [[ "$iface" == "lo" ]] && continue
+
+        cat >> /etc/frr/frr.conf << EOF
+interface $iface
+ ip ospf cost ${iface_costs[$iface]}
+
+EOF
+    done
+
+    chown frr:frr /etc/frr/frr.conf
+    chmod 640 /etc/frr/frr.conf
+
+    systemctl enable frr
+    systemctl restart frr
+
+    echo_info "OSPF успешно настроен"
+}
+
+
 #Функция настройки dns
 dns_setup(){
     default_dns="8.8.8.8"
@@ -297,7 +440,8 @@ main() {
 	echo "3) Настройка nat"
 	echo "4) Настройка коммутатора"
 	echo "5) Настройка агрегирования"
-	echo "6) Выход"
+	echo "6) Настройка OSPF"
+    echo "7) Выход"
 	read -p "Ваш выбор [1-6]: " choice
 	case $choice in
 	    1)
@@ -315,10 +459,13 @@ main() {
 		5)
 		bond_setup
 		;;
-	    6) 
-		echo_info "Выход"
-		exit 0
-		;;
+		6)
+   		ospf_setup
+    	;;
+		7)
+    	echo_info "Выход"
+    	exit 0
+    	;;
 	    *)
 		echo_error "Неверный выбор. Завершение работы скрипта."
 		exit 1
