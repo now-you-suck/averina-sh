@@ -247,6 +247,7 @@ nat_setup(){
     fi
     sysctl -p
     echo "@reboot /sbin/iptables-resore < /etc/rules.v4" | crontab -
+	echo "@reboot /sbin/sysctl -p" | crontab -
 }
 #Функция настройки DHCP у интерфейсов
 DHCP_setting(){
@@ -382,6 +383,7 @@ EOF
     done
 
     echo_info "Bond интерфейс $bond_name создан (${bond_ifaces[*]})"
+	
     apply_network_config
 }
 switch_setup(){
@@ -394,8 +396,7 @@ switch_setup(){
     fi
 
     local if_list=($(get_interfaces_list))
-    bridge_ifaces=()
-
+	
     for int in "${if_list[@]:1}"; do
         # пропускаем bond интерфейсы
         if [[ "$int" =~ bond ]]; then
@@ -406,7 +407,7 @@ switch_setup(){
         cat > /etc/net/ifaces/$int/options << EOF
 TYPE=eth
 ONBOOT=yes
-BOOTPROTO=none
+BOOTPROTO=static
 EOF
     done
 
@@ -416,7 +417,7 @@ EOF
 TYPE=bri
 ONBOOT=yes
 BOOTPROTO=static
-HOST='${bridge_ifaces[*]}'
+HOST='${if_list[@]:1}'
 EOF
 
     if ! grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
