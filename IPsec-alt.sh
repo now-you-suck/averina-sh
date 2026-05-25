@@ -8,13 +8,6 @@ nmcli connection add \
   vpn-type strongswan \
   con-name "vpn" \
   ifname "ens18" \
-  vpn.secrets "password=P@ssw0rdP@ssw0rd"
-  vpn.data "address=10.0.0.1, \
-            certificate=$CERT_PATH, \
-            esp = aes256-sha256-modp2048,\
-            ike = aes256-sha256-modp2048, \
-            method=eap, \
-            user=Administrator, \
-            virtual=yes"
+  vpn.data "address = 10.0.0.1, encap = no, esp = aes256-sha256-modp2048, ike = aes256-sha256-modp2048, ipcomp = no, method = eap, password-flags = 2, proposal = yes, user = Adminstrator, virtual = yes"
             
-nmcli connection up "vpn"
+nmcli connection up "vpn" --ask
