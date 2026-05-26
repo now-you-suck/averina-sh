@@ -131,10 +131,7 @@ ospf_setup() {
 
     mkdir -p /etc/frr
 
-    cat > /etc/frr/frr.conf << EOF
-frr defaults traditional
-hostname ospf-router
-service integrated-vtysh-config
+    cat >> /etc/frr/frr.conf << EOF
 
 router ospf
 EOF
@@ -325,10 +322,7 @@ bgp_setup() {
 
     mkdir -p /etc/frr
 
-    cat > /etc/frr/frr.conf << EOF
-frr defaults traditional
-hostname bgp-router
-service integrated-vtysh-config
+    cat >> /etc/frr/frr.conf << EOF
 
 router bgp $local_as
  bgp router-id $router_id
