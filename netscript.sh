@@ -33,9 +33,12 @@ echo_error() {
 ospf_setup() {
     echo_info "Выбрана настройка OSPF (FRR)"
 
+    #
     # Проверка FRR
+    #
     if ! rpm -q frr >/dev/null 2>&1; then
         echo_warn "FRR не установлен"
+
         read -p "Установить FRR?[Y/n]: " install_frr
 
         if [[ ! "$install_frr" =~ ^[NnтТ]$ ]]; then
@@ -47,23 +50,36 @@ ospf_setup() {
         fi
     fi
 
-    # Получение интерфейсов
+    #
+    # Интерфейсы
+    #
     local if_list=($(get_interfaces_list))
 
     declare -A iface_costs
+    declare -a passive_ifaces
+    declare -a ospf_networks
 
+    echo
+    echo_info "Настройка Router-ID"
+
+    read -p "Введите Router-ID (например 1.1.1.1): " router_id
+
+    #
+    # COST
+    #
+    echo
     echo_info "Настройка OSPF cost"
 
     while true; do
+
         echo
         echo "Доступные интерфейсы:"
 
         for i in "${!if_list[@]}"; do
+
             iface="${if_list[$i]}"
 
-            if [[ "$iface" == "lo" ]]; then
-                continue
-            fi
+            [[ "$iface" == "lo" ]] && continue
 
             current_cost="${iface_costs[$iface]}"
             [[ -z "$current_cost" ]] && current_cost="не задан"
@@ -98,8 +114,11 @@ ospf_setup() {
         echo_info "Для $selected_iface установлен cost=$cost_value"
     done
 
-    # Установка default cost
+    #
+    # default cost
+    #
     for iface in "${if_list[@]}"; do
+
         [[ "$iface" == "lo" ]] && continue
 
         if [[ -z "${iface_costs[$iface]}" ]]; then
@@ -107,13 +126,121 @@ ospf_setup() {
         fi
     done
 
+    #
+    # passive-interface
+    #
     echo
-    echo_info "Итоговая конфигурация OSPF cost"
+    echo_info "Настройка passive-interface"
+
+    while true; do
+
+        echo
+        echo "Интерфейсы:"
+
+        for i in "${!if_list[@]}"; do
+
+            iface="${if_list[$i]}"
+
+            [[ "$iface" == "lo" ]] && continue
+
+            echo "$i) $iface"
+        done
+
+        echo "999) Завершить выбор passive-interface"
+
+        read -p "Выберите интерфейс: " passive_choice
+
+        if [[ "$passive_choice" == "999" ]]; then
+            break
+        fi
+
+        selected_iface="${if_list[$passive_choice]}"
+
+        if [[ -z "$selected_iface" ]]; then
+            echo_error "Неверный интерфейс"
+            continue
+        fi
+
+        passive_ifaces+=("$selected_iface")
+
+        echo_info "$selected_iface добавлен в passive-interface"
+    done
+
+    #
+    # Анонс сетей
+    #
+    echo
+    echo_info "Настройка анонса сетей"
+
+    read -p "Анонсировать все сети интерфейсов?[Y/n]: " adv_all
+
+    if [[ ! "$adv_all" =~ ^[NnтТ]$ ]]; then
+
+        #
+        # Все сети
+        #
+        for iface in "${if_list[@]}"; do
+
+            [[ "$iface" == "lo" ]] && continue
+
+            network=$(ip -4 addr show "$iface" | grep inet | awk '{print $2}')
+
+            if [[ -n "$network" ]]; then
+                ospf_networks+=("$network")
+            fi
+        done
+
+    else
+
+        #
+        # Ручной выбор
+        #
+        while true; do
+
+            read -p "Добавить сеть для анонса?[y/N]: " add_net
+
+            if [[ ! "$add_net" =~ ^[YyнН]$ ]]; then
+                break
+            fi
+
+            read -p "Введите сеть (например 10.0.0.0/24): " ospf_net
+
+            ospf_networks+=("$ospf_net")
+        done
+    fi
+
+    #
+    # Итог
+    #
+    echo
+    echo_info "Итоговая конфигурация"
+
     echo "-------------------------------------"
 
+    echo "Router-ID: $router_id"
+
+    echo
+    echo "OSPF cost:"
+
     for iface in "${if_list[@]}"; do
+
         [[ "$iface" == "lo" ]] && continue
+
         printf "%-15s cost=%s\n" "$iface" "${iface_costs[$iface]}"
+    done
+
+    echo
+    echo "Passive-interface:"
+
+    for iface in "${passive_ifaces[@]}"; do
+        echo " - $iface"
+    done
+
+    echo
+    echo "Анонсируемые сети:"
+
+    for net in "${ospf_networks[@]}"; do
+        echo " - $net"
     done
 
     echo "-------------------------------------"
@@ -125,32 +252,45 @@ ospf_setup() {
         return
     fi
 
-    echo_info "Включение ospfd"
-
+    #
+    # Включение ospfd
+    #
     sed -i 's/^ospfd=no/ospfd=yes/' /etc/frr/daemons
 
     mkdir -p /etc/frr
 
+    #
+    # Генерация frr.conf
+    #
     cat >> /etc/frr/frr.conf << EOF
 
 router ospf
+ ospf router-id $router_id
 EOF
 
-    # Автоматически добавляем сети интерфейсов в area 0
-    for iface in "${if_list[@]}"; do
-        [[ "$iface" == "lo" ]] && continue
-
-        network=$(ip -4 addr show "$iface" | grep inet | awk '{print $2}')
-
-        if [[ -n "$network" ]]; then
-            echo " network $network area 0.0.0.0" >> /etc/frr/frr.conf
-        fi
+    #
+    # networks
+    #
+    for net in "${ospf_networks[@]}"; do
+        echo " network $net area 0.0.0.0" >> /etc/frr/frr.conf
     done
 
     echo >> /etc/frr/frr.conf
 
+    #
+    # passive-interface
+    #
+    for iface in "${passive_ifaces[@]}"; do
+        echo " passive-interface $iface" >> /etc/frr/frr.conf
+    done
+
+    echo >> /etc/frr/frr.conf
+
+    #
     # interface cost
+    #
     for iface in "${if_list[@]}"; do
+
         [[ "$iface" == "lo" ]] && continue
 
         cat >> /etc/frr/frr.conf << EOF
@@ -160,9 +300,15 @@ interface $iface
 EOF
     done
 
+    #
+    # Права
+    #
     chown frr:frr /etc/frr/frr.conf
     chmod 640 /etc/frr/frr.conf
 
+    #
+    # Запуск
+    #
     systemctl enable frr
     systemctl restart frr
 
