@@ -249,6 +249,123 @@ nat_setup(){
     echo "@reboot /sbin/iptables-resore < /etc/rules.v4" | crontab -
 	echo "@reboot /sbin/sysctl -p" | crontab -
 }
+bgp_setup() {
+    echo_info "Выбрана настройка BGP (FRR)"
+
+    # Проверка FRR
+    if ! rpm -q frr >/dev/null 2>&1; then
+        echo_warn "FRR не установлен"
+
+        read -p "Установить FRR? [Y/n]: " install_frr
+
+        if [[ ! "$install_frr" =~ ^[NnтТ]$ ]]; then
+            apt-get update
+            apt-get install -y frr
+        else
+            echo_error "FRR необходим для BGP"
+            return 1
+        fi
+    fi
+
+    echo
+    read -p "Введите ASN текущего роутера: " local_as
+    read -p "Введите Router-ID (например 1.1.1.1): " router_id
+
+    echo
+    echo_info "Настройка соседей BGP"
+
+    declare -a neighbors
+    declare -a remote_asn
+    declare -a update_source
+
+    while true; do
+        read -p "Добавить соседа? [y/N]: " add_neighbor
+
+        if [[ ! "$add_neighbor" =~ ^[YyнН]$ ]]; then
+            break
+        fi
+
+        read -p "IP соседа: " neigh_ip
+        read -p "ASN соседа: " neigh_as
+
+        read -p "Использовать update-source lo? [y/N]: " use_lo
+
+        if [[ "$use_lo" =~ ^[YyнН]$ ]]; then
+            upd_src="lo"
+        else
+            upd_src=""
+        fi
+
+        neighbors+=("$neigh_ip")
+        remote_asn+=("$neigh_as")
+        update_source+=("$upd_src")
+    done
+
+    echo
+    echo_info "Выбор сетей для анонсирования"
+
+    declare -a advertise_networks
+
+    while true; do
+        read -p "Добавить сеть для анонса? [y/N]: " add_net
+
+        if [[ ! "$add_net" =~ ^[YyнН]$ ]]; then
+            break
+        fi
+
+        read -p "Введите сеть (например 10.0.0.0/24): " bgp_net
+
+        advertise_networks+=("$bgp_net")
+    done
+
+    echo
+    echo_info "Создание конфигурации FRR"
+
+    sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+
+    mkdir -p /etc/frr
+
+    cat > /etc/frr/frr.conf << EOF
+frr defaults traditional
+hostname bgp-router
+service integrated-vtysh-config
+
+router bgp $local_as
+ bgp router-id $router_id
+EOF
+
+    #
+    # neighbors
+    #
+    for i in "${!neighbors[@]}"; do
+
+        echo " neighbor ${neighbors[$i]} remote-as ${remote_asn[$i]}" >> /etc/frr/frr.conf
+
+        if [[ -n "${update_source[$i]}" ]]; then
+            echo " neighbor ${neighbors[$i]} update-source ${update_source[$i]}" >> /etc/frr/frr.conf
+        fi
+    done
+
+    echo >> /etc/frr/frr.conf
+
+    #
+    # network announce
+    #
+    for net in "${advertise_networks[@]}"; do
+        echo " network $net" >> /etc/frr/frr.conf
+    done
+
+    echo >> /etc/frr/frr.conf
+
+    chown frr:frr /etc/frr/frr.conf
+    chmod 640 /etc/frr/frr.conf
+
+    systemctl enable frr
+    systemctl restart frr
+
+    echo_info "BGP успешно настроен"
+}
+
 #Функция настройки DHCP у интерфейсов
 DHCP_setting(){
     echo_info "Выбрана настройка через DHCP"
@@ -442,8 +559,9 @@ main() {
 	echo "4) Настройка коммутатора"
 	echo "5) Настройка агрегирования"
 	echo "6) Настройка OSPF"
-    echo "7) Выход"
-	read -p "Ваш выбор [1-6]: " choice
+	echo "7) Настройка BGP"
+	echo "8) Выход"
+	read -p "Ваш выбор [1-8]: " choice
 	case $choice in
 	    1)
 		setup_interface
@@ -464,6 +582,9 @@ main() {
    		ospf_setup
     	;;
 		7)
+    	bgp_setup
+    	;;
+		8)
     	echo_info "Выход"
     	exit 0
     	;;
